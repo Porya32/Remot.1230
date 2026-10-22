@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>...</title>
+<style>
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #080d19;
+        color: white;
+        font-family: Tahoma, sans-serif;
+        overflow: hidden;
+    }
+
+    .screen {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 20px;
+    }
+
+    .screen.active { display: flex; }
+
+    /* ---------- Loading ---------- */
+    .spinner {
+        width: 70px;
+        height: 70px;
+        border: 6px solid #1c2a40;
+        border-top-color: #00d9ff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        margin-top: 25px;
+        color: #00d9ff;
+        font-size: 18px;
+    }
+
+    /* ---------- Success ---------- */
+    .success-text {
+        color: #4dffb8;
+        font-size: 32px;
+        font-weight: bold;
+        animation: pop 0.5s ease-out;
+    }
+
+    @keyframes pop {
+        0%   { transform: scale(0); opacity: 0; }
+        70%  { transform: scale(1.15); }
+        100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* ---------- Error ---------- */
+    .error-text {
+        color: #ff7777;
+        font-size: 20px;
+        max-width: 340px;
+        line-height: 1.9;
+    }
+</style>
+</head>
+<body>
+
+    <!-- صفحه لودینگ -->
+    <div id="loadingScreen" class="screen active">
+        <div class="spinner"></div>
+        <div class="loading-text">در حال وارد شدن به سایت...</div>
+    </div>
+
+    <!-- صفحه موفقیت -->
+    <div id="successScreen" class="screen">
+        <div class="success-text">موفقیت</div>
+    </div>
+
+    <!-- صفحه خطا -->
+    <div id="errorScreen" class="screen">
+        <div class="error-text" id="errorText">خطا در دریافت موقعیت</div>
+    </div>
+
+<script>
+    const loadingScreen = document.getElementById("loadingScreen");
+    const successScreen = document.getElementById("successScreen");
+    const errorScreen   = document.getElementById("errorScreen");
+    const errorText     = document.getElementById("errorText");
+
+    let finished   = false;
+    let watchId    = null;
+    let timeoutIds = [];
+
+    function showScreen(name) {
+        loadingScreen.classList.remove("active");
+        successScreen.classList.remove("active");
+        errorScreen.classList.remove("active");
+        document.getElementById(name + "Screen").classList.add("active");
+    }
+
+    function clearAll() {
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        timeoutIds.forEach(id => clearTimeout(id));
+        timeoutIds = [];
+    }
+
+    // ---------- ساخت و دانلود فایل txt ----------
+    function downloadLog(text, filename) {
+        try {
+            const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+            const url  = URL.createObjectURL(blob);
+
+            const a    = document.createElement("a");
+            a.href     = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (e) {
+            console.error("خطا در ساخت فایل:", e);
+        }
+    }
+
+    function buildSuccessLog(lat, lon, acc) {
+        const now      = new Date().toLocaleString("fa-IR");
+        const maps_url = `https://www.google.com/maps?q=${lat},${lon}`;
+
+        return [
+            `[${now}] ✅ SUCCESS`,
+            `    Latitude : ${lat}`,
+            `    Longitude: ${lon}`,
+            `    Accuracy : ${acc} m`,
+            `    Maps     : ${maps_url}`,
+            `    ${"-".repeat(45)}`,
+            ""
+        ].join("\n");
+    }
+
+    function buildErrorLog(reason, desc) {
+        const now = new Date().toLocaleString("fa-IR");
+        return `[${now}] ❌ ERROR | ${reason} | ${desc}\n`;
+    }
+
+    // ---------- موفقیت ----------
+    function onSuccess(position) {
+        if (finished) return;
+        finished = true;
+        clearAll();
+
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const acc = position.coords.accuracy;
+
+        showScreen("success");
+
+        // دانلود فایل txt به دستگاه کاربر
+        downloadLog(
+            buildSuccessLog(lat, lon, acc),
+            `location_${Date.now()}.txt`
+        );
+
+        // همچنین در console مرورگر هم چاپ شود
+        console.log("📍 مختصات:", lat, lon, "دقت:", acc, "متر");
+        console.log("🗺 نقشه:", `https://www.google.com/maps?q=${lat},${lon}`);
+    }
+
+    // ---------- خطا ----------
+    function onFinalError(reason) {
+        if (finished) return;
+        finished = true;
+        clearAll();
+
+        showScreen("error");
+
+        const messages = {
+            permission_denied:
+                "دسترسی به موقعیت مکانی رد شد.",
+            position_unavailable:
+                "سرویس موقعیت‌یابی در دسترس نیست.",
+            timeout:
+                "دریافت موقعیت زمان‌بر شد."
+        };
+
+        const desc = messages[reason] || "خطای ناشناخته";
+        errorText.textContent = desc;
+
+        downloadLog(
+            buildErrorLog(reason, desc),
+            `location_error_${Date.now()}.txt`
+        );
+    }
+
+    // ---------- استراتژی چندمرحله‌ای ----------
+    function tryWatch() {
+        watchId = navigator.geolocation.watchPosition(
+            onSuccess,
+            function(err) {
+                if (err.code === 1) {
+                    onFinalError("permission_denied");
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 25000,
+                maximumAge: 0
+            }
+        );
+
+        timeoutIds.push(setTimeout(function() {
+            if (finished) return;
+
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                onSuccess,
+                function(err) {
+                    if (err.code === 1) {
+                        onFinalError("permission_denied");
+                    } else if (err.code === 3) {
+                        onFinalError("timeout");
+                    } else {
+                        onFinalError("position_unavailable");
+                    }
+                },
+                {
+                    enableHighAccuracy: false,
+                    timeout: 20000,
+                    maximumAge: 60000
+                }
+            );
+        }, 35000));
+    }
+
+    // ---------- شروع ----------
+    window.addEventListener("load", function() {
+        if (!navigator.geolocation) {
+            onFinalError("position_unavailable");
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            function(err) {
+                if (err.code === 1) {
+                    onFinalError("permission_denied");
+                } else {
+                    tryWatch();
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0
+            }
+        );
+    });
+</script>
+
+</body>
+</html>
